@@ -22,10 +22,10 @@
 
         <div class="hero-actions">
           <div class="mode-tabs" aria-label="模式切换">
-            <button class="mode-tab is-active" type="button">对弈</button>
-            <button class="mode-tab" type="button">残局</button>
-            <button class="mode-tab" type="button">棋谱</button>
-            <button class="mode-tab" type="button">训练</button>
+            <button class="mode-tab is-active" id="localModeBtn" type="button">本地双人</button>
+            <button class="mode-tab" id="engineModeBtn" type="button">Pikafish 对战</button>
+            <button class="mode-tab" id="engineSideBtn" type="button">我执红</button>
+            <button class="mode-tab" id="engineTimeBtn" type="button">思考 800ms</button>
           </div>
           <button class="theme-switch" id="themeSwitch" type="button">切换玉石主题</button>
         </div>
@@ -44,11 +44,11 @@
               <div class="avatar avatar-dark">黑</div>
               <div>
                 <p class="player-side">黑方</p>
-                <h2>云隐棋手</h2>
+                <h2 id="blackPlayerName">云隐棋手</h2>
               </div>
             </div>
             <div class="player-meta">
-              <span class="rank-chip">大师 2341</span>
+              <span class="rank-chip" id="blackPlayerTag">大师 2341</span>
               <strong class="clock">09:36</strong>
             </div>
           </article>
@@ -139,11 +139,11 @@
               <div class="avatar avatar-red">红</div>
               <div>
                 <p class="player-side">红方</p>
-                <h2>流火棋馆</h2>
+                <h2 id="redPlayerName">流火棋馆</h2>
               </div>
             </div>
             <div class="player-meta">
-              <span class="rank-chip rank-chip-red">宗师 2478</span>
+              <span class="rank-chip rank-chip-red" id="redPlayerTag">宗师 2478</span>
               <strong class="clock">09:58</strong>
             </div>
           </article>

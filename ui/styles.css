@@ -184,6 +184,19 @@ button {
   box-shadow: 0 12px 22px rgba(17, 12, 8, 0.2);
 }
 
+.mode-tab.is-accent {
+  background: rgba(208, 168, 90, 0.9);
+  color: #2a1a12;
+  box-shadow: 0 12px 22px rgba(68, 49, 22, 0.18);
+}
+
+.mode-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .theme-switch {
   padding: 12px 18px;
   background: linear-gradient(135deg, rgba(255, 240, 217, 0.96), rgba(209, 168, 90, 0.88));
@@ -243,6 +256,16 @@ button {
 .signal-pill {
   background: rgba(26, 93, 76, 0.92);
   color: #f1fff8;
+}
+
+.signal-pill.is-busy {
+  background: rgba(208, 168, 90, 0.96);
+  color: #2a1a12;
+}
+
+.signal-pill.is-error {
+  background: rgba(159, 47, 32, 0.94);
+  color: #fff6f2;
 }
 
 .strip-item {
@@ -463,6 +486,11 @@ button {
     inset 0 -5px 8px rgba(115, 72, 38, 0.12);
 }
 
+.piece.engine-locked {
+  cursor: not-allowed;
+  filter: saturate(0.88);
+}
+
 .piece.last-moved {
   box-shadow:
     0 0 0 10px rgba(208, 168, 90, 0.22),
@@ -646,6 +674,11 @@ body.is-ready .piece {
   background: linear-gradient(135deg, var(--accent), #d66744);
   color: #fffaf3;
   box-shadow: 0 16px 22px rgba(159, 47, 32, 0.26);
+}
+
+.control-btn.is-loading {
+  background: linear-gradient(135deg, var(--gold), #e1bf78);
+  color: #2a1a12;
 }
 
 .control-btn:disabled {

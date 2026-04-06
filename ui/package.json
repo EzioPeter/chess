@@ -1,0 +1,7 @@
+{
+  "name": "xiangqi-ui",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}
