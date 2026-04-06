@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>中国象棋 App 界面</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="background-orb orb-left"></div>
+    <div class="background-orb orb-right"></div>
+
+    <main class="app-shell">
+      <header class="hero-bar">
+        <div class="hero-copy">
+          <p class="hero-kicker">XIANGQI MOBILE CONCEPT</p>
+          <h1>中国象棋 App 界面</h1>
+          <p class="hero-summary">
+            以木纹棋盘、立体棋子和开局回放为核心，做一个可以直接可视化的对弈首页。
+          </p>
+        </div>
+
+        <div class="hero-actions">
+          <div class="mode-tabs" aria-label="模式切换">
+            <button class="mode-tab is-active" type="button">对弈</button>
+            <button class="mode-tab" type="button">残局</button>
+            <button class="mode-tab" type="button">棋谱</button>
+            <button class="mode-tab" type="button">训练</button>
+          </div>
+          <button class="theme-switch" id="themeSwitch" type="button">切换玉石主题</button>
+        </div>
+      </header>
+
+      <section class="stage-grid">
+        <section class="board-pane">
+          <div class="top-strip">
+            <span class="signal-pill" id="gameStatePill">本地对弈</span>
+            <span class="strip-item" id="phaseLabel">双人同屏 · 标准开局</span>
+            <span class="strip-item" id="turnStrip">红方行棋</span>
+          </div>
+
+          <article class="player-card player-card-top" id="playerBlackCard">
+            <div class="player-main">
+              <div class="avatar avatar-dark">黑</div>
+              <div>
+                <p class="player-side">黑方</p>
+                <h2>云隐棋手</h2>
+              </div>
+            </div>
+            <div class="player-meta">
+              <span class="rank-chip">大师 2341</span>
+              <strong class="clock">09:36</strong>
+            </div>
+          </article>
+
+          <div class="board-wrap">
+            <div class="board-surface" id="boardSurface" aria-label="中国象棋棋盘">
+              <svg class="board-svg" viewBox="0 0 900 1080" aria-hidden="true">
+                <defs>
+                  <filter id="boardShadow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="20" stdDeviation="18" flood-opacity="0.18" />
+                  </filter>
+                </defs>
+
+                <rect x="38" y="38" width="824" height="1004" rx="40" class="board-backplate" filter="url(#boardShadow)" />
+                <rect x="90" y="90" width="720" height="900" class="board-border" />
+
+                <g class="board-lines">
+                  <line x1="90" y1="90" x2="810" y2="90" />
+                  <line x1="90" y1="190" x2="810" y2="190" />
+                  <line x1="90" y1="290" x2="810" y2="290" />
+                  <line x1="90" y1="390" x2="810" y2="390" />
+                  <line x1="90" y1="490" x2="810" y2="490" />
+                  <line x1="90" y1="590" x2="810" y2="590" />
+                  <line x1="90" y1="690" x2="810" y2="690" />
+                  <line x1="90" y1="790" x2="810" y2="790" />
+                  <line x1="90" y1="890" x2="810" y2="890" />
+                  <line x1="90" y1="990" x2="810" y2="990" />
+
+                  <line x1="90" y1="90" x2="90" y2="990" />
+                  <line x1="810" y1="90" x2="810" y2="990" />
+
+                  <line x1="180" y1="90" x2="180" y2="490" />
+                  <line x1="270" y1="90" x2="270" y2="490" />
+                  <line x1="360" y1="90" x2="360" y2="490" />
+                  <line x1="450" y1="90" x2="450" y2="490" />
+                  <line x1="540" y1="90" x2="540" y2="490" />
+                  <line x1="630" y1="90" x2="630" y2="490" />
+                  <line x1="720" y1="90" x2="720" y2="490" />
+
+                  <line x1="180" y1="590" x2="180" y2="990" />
+                  <line x1="270" y1="590" x2="270" y2="990" />
+                  <line x1="360" y1="590" x2="360" y2="990" />
+                  <line x1="450" y1="590" x2="450" y2="990" />
+                  <line x1="540" y1="590" x2="540" y2="990" />
+                  <line x1="630" y1="590" x2="630" y2="990" />
+                  <line x1="720" y1="590" x2="720" y2="990" />
+
+                  <line x1="360" y1="90" x2="540" y2="290" />
+                  <line x1="540" y1="90" x2="360" y2="290" />
+                  <line x1="360" y1="790" x2="540" y2="990" />
+                  <line x1="540" y1="790" x2="360" y2="990" />
+                </g>
+
+                <g class="board-river">
+                  <text x="275" y="548">楚 河</text>
+                  <text x="625" y="548">汉 界</text>
+                </g>
+
+                <g class="marker-group">
+                  <path d="M170 278 h18 m-18 0 v18 M170 302 h18 m-18 -18 v18" />
+                  <path d="M732 278 h-18 m18 0 v18 M732 302 h-18 m18 -18 v18" />
+
+                  <path d="M80 378 h18 m-18 0 v18 M80 402 h18 m-18 -18 v18" />
+                  <path d="M260 378 h18 m-18 0 v18 M260 402 h18 m-18 -18 v18" />
+                  <path d="M440 378 h18 m-18 0 v18 M440 402 h18 m-18 -18 v18" />
+                  <path d="M620 378 h18 m-18 0 v18 M620 402 h18 m-18 -18 v18" />
+                  <path d="M800 378 h-18 m18 0 v18 M800 402 h-18 m18 -18 v18" />
+
+                  <path d="M80 678 h18 m-18 0 v18 M80 702 h18 m-18 -18 v18" />
+                  <path d="M260 678 h18 m-18 0 v18 M260 702 h18 m-18 -18 v18" />
+                  <path d="M440 678 h18 m-18 0 v18 M440 702 h18 m-18 -18 v18" />
+                  <path d="M620 678 h18 m-18 0 v18 M620 702 h18 m-18 -18 v18" />
+                  <path d="M800 678 h-18 m18 0 v18 M800 702 h-18 m18 -18 v18" />
+
+                  <path d="M170 778 h18 m-18 0 v18 M170 802 h18 m-18 -18 v18" />
+                  <path d="M732 778 h-18 m18 0 v18 M732 802 h-18 m18 -18 v18" />
+                </g>
+              </svg>
+
+              <div class="move-highlight" id="moveHighlight" aria-hidden="true"></div>
+              <div class="legal-layer" id="legalLayer"></div>
+              <div class="pieces-layer" id="piecesLayer"></div>
+            </div>
+          </div>
+
+          <article class="player-card player-card-bottom" id="playerRedCard">
+            <div class="player-main">
+              <div class="avatar avatar-red">红</div>
+              <div>
+                <p class="player-side">红方</p>
+                <h2>流火棋馆</h2>
+              </div>
+            </div>
+            <div class="player-meta">
+              <span class="rank-chip rank-chip-red">宗师 2478</span>
+              <strong class="clock">09:58</strong>
+            </div>
+          </article>
+        </section>
+
+        <aside class="sidebar">
+          <section class="panel intro-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">对局概览</p>
+                <h3 id="gameTitle">本地双人对弈</h3>
+              </div>
+              <span class="eval-chip" id="evalChip">红方先行</span>
+            </div>
+            <p class="panel-copy" id="currentDescription">
+              点击红方棋子开始对局，系统会自动校验走法是否合法。
+            </p>
+            <div class="stat-grid">
+              <article>
+                <span>局面提示</span>
+                <strong id="engineSuggestion">点击红方棋子开始</strong>
+              </article>
+              <article>
+                <span>已走步数</span>
+                <strong id="currentStep">0</strong>
+              </article>
+              <article>
+                <span>当前回合</span>
+                <strong id="turnLabel">红方</strong>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel controls-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">对局控制</p>
+                <h3>操作与记录</h3>
+              </div>
+            </div>
+
+            <div class="control-row">
+              <button class="control-btn" id="undoBtn" type="button">悔棋</button>
+              <button class="control-btn primary" id="resetBtn" type="button">重新开局</button>
+              <button class="control-btn" id="hintBtn" type="button">提示着法</button>
+            </div>
+
+            <ol class="move-list" id="moveList"></ol>
+          </section>
+
+          <section class="panel inspector-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">棋子信息</p>
+                <h3 id="inspectorTitle">帅</h3>
+              </div>
+              <span class="piece-badge" id="inspectorBadge">红方 · 帅</span>
+            </div>
+
+            <p class="panel-copy" id="inspectorText">
+              点击任意棋子可以查看说明；轮到己方时，选中后会显示所有合法落点。
+            </p>
+
+            <div class="shortcut-grid">
+              <button class="shortcut-btn" type="button">悔棋</button>
+              <button class="shortcut-btn" type="button">提示</button>
+              <button class="shortcut-btn" type="button">残局</button>
+              <button class="shortcut-btn" type="button">复盘</button>
+              <button class="shortcut-btn" type="button">收藏</button>
+              <button class="shortcut-btn" type="button">分享</button>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./main.js"></script>
+  </body>
+</html>
