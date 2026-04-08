@@ -767,6 +767,208 @@ function getHintNotation() {
   );
 }
 
+function normalizeChineseNotation(notation) {
+  if (typeof notation !== "string") {
+    return "";
+  }
+
+  return notation
+    .trim()
+    .replace(/[０-９]/g, (digit) => String(digit.charCodeAt(0) - 65296))
+    .replace(/[俥車]/g, "车")
+    .replace(/[傌馬]/g, "马")
+    .replace(/砲/g, "炮")
+    .replace(/[象相]/g, "相")
+    .replace(/[士仕]/g, "仕")
+    .replace(/[將将帥帅]/g, "帅")
+    .replace(/[卒兵]/g, "兵")
+    .replace(/\s+/g, "")
+    .replace(/[．。]/g, ".");
+}
+
+function extractNotationMoves(text) {
+  if (typeof text !== "string") {
+    return [];
+  }
+
+  return text
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      const normalizedLine = normalizeChineseNotation(line)
+        .replace(/^=+.*?=+$/g, "")
+        .replace(/^\d+[.:：、]*/, "");
+
+      if (!normalizedLine || !/[进退平]/.test(normalizedLine)) {
+        return [];
+      }
+
+      const matches = normalizedLine.match(/[前中后车马炮兵相仕帅][一二三四五六七八九1-9]?[进退平][一二三四五六七八九1-9]/g);
+      return matches ?? [];
+    })
+    .filter(Boolean);
+}
+
+function getAutomationSnapshot() {
+  return {
+    mode: gameState.mode,
+    turn: gameState.turn,
+    winner: gameState.winner,
+    historyLength: gameState.history.length,
+    engineAvailable: gameState.engineAvailable,
+    engineThinking: gameState.engineThinking,
+    analysisThinking: gameState.analysisThinking,
+    hintNotation: getHintNotation(),
+    uciMoves: [...gameState.uciMoves],
+  };
+}
+
+function resolveNotationMove(notation) {
+  const normalizedNotation = normalizeChineseNotation(notation);
+  if (!normalizedNotation) {
+    throw new Error("棋谱着法为空，无法解析。");
+  }
+
+  const legalMoves = getAllLegalMoves(gameState.turn, gameState.pieces);
+  const matches = legalMoves.filter((move) => {
+    const piece = getPieceById(gameState.pieces, move.pieceId);
+    return normalizeChineseNotation(formatChineseMoveNotation(piece, move, gameState.pieces)) === normalizedNotation;
+  });
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  const sampleMoves = legalMoves
+    .slice(0, 12)
+    .map((move) => {
+      const piece = getPieceById(gameState.pieces, move.pieceId);
+      return formatChineseMoveNotation(piece, move, gameState.pieces);
+    })
+    .join("、");
+
+  if (!matches.length) {
+    throw new Error(
+      `当前局面无法匹配着法“${notation}”。轮到${getSideLabel(gameState.turn)}，可选示例：${sampleMoves || "无"}`,
+    );
+  }
+
+  throw new Error(`着法“${notation}”存在歧义，请改成更明确的棋谱写法。`);
+}
+
+function waitMs(ms) {
+  const safeMs = Math.max(0, Math.floor(Number(ms) || 0));
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, safeMs);
+  });
+}
+
+function normalizeAutomationSide(side) {
+  if (side === "red" || side === "black") {
+    return side;
+  }
+
+  if (side === "红" || side === "红方") {
+    return "red";
+  }
+
+  if (side === "黑" || side === "黑方") {
+    return "black";
+  }
+
+  return null;
+}
+
+async function prepareLocalReplayBoard({ reset = true } = {}) {
+  if (gameState.mode !== "local") {
+    enableLocalMode();
+  }
+
+  cancelPendingAnalysisRequest();
+
+  if (reset) {
+    await handleReset();
+  }
+
+  return getAutomationSnapshot();
+}
+
+async function applyNotationMove(notation, { actor = "human" } = {}) {
+  if (gameState.mode !== "local") {
+    enableLocalMode();
+  }
+
+  if (gameState.engineThinking) {
+    cancelPendingEngineRequest();
+  }
+
+  cancelPendingAnalysisRequest();
+
+  const move = resolveNotationMove(notation);
+  const applied = performMove(move, {
+    actor,
+    uci: moveToUci(move),
+    preserveHint: shouldAutoSuggestMove(),
+  });
+
+  if (!applied) {
+    throw new Error(`着法“${notation}”未能成功落子。`);
+  }
+
+  return {
+    notation: normalizeChineseNotation(notation),
+    moveUci: moveToUci(move),
+    snapshot: getAutomationSnapshot(),
+  };
+}
+
+async function applyLiveCommand(command) {
+  if (!command || typeof command !== "object") {
+    throw new Error("动态指令不能为空。");
+  }
+
+  if (command.type === "reset" || command.type === "prepare") {
+    return prepareLocalReplayBoard({ reset: command.reset !== false });
+  }
+
+  if (command.type !== "move") {
+    throw new Error(`不支持的动态指令类型：${command.type}`);
+  }
+
+  const side = normalizeAutomationSide(command.side);
+  if (!side) {
+    throw new Error("move 指令必须提供合法的 side。");
+  }
+
+  if (gameState.mode !== "local") {
+    enableLocalMode();
+  }
+
+  if (gameState.turn !== side) {
+    throw new Error(`当前轮到${getSideLabel(gameState.turn)}，不能代${getSideLabel(side)}行棋。`);
+  }
+
+  return applyNotationMove(command.notation, {
+    actor: command.actor === "engine" ? "engine" : "human",
+  });
+}
+
+async function replayNotationMoves(input, { delayMs = 700, reset = true } = {}) {
+  const moves = Array.isArray(input) ? input.map(normalizeChineseNotation).filter(Boolean) : extractNotationMoves(input);
+  await prepareLocalReplayBoard({ reset });
+
+  for (let index = 0; index < moves.length; index += 1) {
+    await applyNotationMove(moves[index]);
+    if (index < moves.length - 1 && delayMs > 0) {
+      await waitMs(delayMs);
+    }
+  }
+
+  return {
+    totalMoves: moves.length,
+    snapshot: getAutomationSnapshot(),
+  };
+}
+
 function toUciSquare(x, y) {
   return `${String.fromCharCode(97 + x)}${9 - y}`;
 }
@@ -1130,7 +1332,7 @@ function buildMoveRecord(piece, move, actor, uci, winner, isCheck) {
     side: piece.side,
     actor,
     actorLabel: actor === "engine" ? "Pikafish" : getSideLabel(piece.side),
-    notation: `${piece.label} ${formatCoord(move.from)} -> ${formatCoord(move.to)}${actionText}`,
+    notation: `${formatChineseMoveNotation(piece, move, gameState.pieces)}${actionText}`,
     uci,
     outcomeText,
   };
@@ -2063,6 +2265,26 @@ function render() {
   renderPlayerCards();
   renderButtons();
 }
+
+window.XiangqiAutomation = {
+  normalizeChineseNotation,
+  extractNotationMoves,
+  resolveNotationMove: (notation) => {
+    const move = resolveNotationMove(notation);
+    return {
+      notation: normalizeChineseNotation(notation),
+      uci: moveToUci(move),
+      from: { ...move.from },
+      to: { ...move.to },
+      side: gameState.turn,
+    };
+  },
+  getState: getAutomationSnapshot,
+  prepareLocalReplayBoard,
+  applyNotationMove,
+  applyLiveCommand,
+  replayNotationMoves,
+};
 
 boardSurface.addEventListener("click", async (event) => {
   const point = getBoardCoordinateFromEvent(event);

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>双人对战动态指令台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="control-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">INTERFACE</p>
+            <h1>双人对战动态指令台</h1>
+          </div>
+          <div class="status-stack">
+            <span class="status-chip" id="connectionState">等待棋盘连接</span>
+            <span class="status-chip status-chip-ghost" id="turnState">轮到未知</span>
+            <span class="status-chip status-chip-ghost" id="commandState">命令 #0</span>
+          </div>
+        </div>
+
+        <p class="panel-copy">
+          这个页面会持续监听动态命令，并把命令实时发送给下方 iframe 里的本地双人模式。
+        </p>
+
+        <section class="example-block">
+          <h2>命令行发送示例</h2>
+          <pre class="code-block">node interface/send-command.js reset
+node interface/send-command.js move red 兵三进一
+node interface/send-command.js move black 炮2平5</pre>
+        </section>
+
+        <section class="example-block">
+          <h2>手工发送一条命令</h2>
+          <div class="manual-grid">
+            <label class="field">
+              <span>行棋方</span>
+              <select id="sideInput">
+                <option value="red">red / 红方</option>
+                <option value="black">black / 黑方</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>棋谱着法</span>
+              <input id="notationInput" type="text" placeholder="例如：兵三进一" />
+            </label>
+          </div>
+
+          <div class="button-row button-row-left">
+            <button class="action-btn action-btn-primary" id="sendBtn" type="button">发送着法</button>
+            <button class="action-btn" id="prepareBtn" type="button">切到本地双人并重置</button>
+            <button class="action-btn" id="resetBtn" type="button">只重置棋盘</button>
+          </div>
+        </section>
+
+        <section class="example-block">
+          <h2>运行日志</h2>
+          <div class="log-box" id="runtimeLog">等待棋盘和命令通道就绪。</div>
+        </section>
+      </section>
+
+      <section class="board-panel">
+        <div class="frame-head">
+          <strong>本地双人模式棋盘</strong>
+          <a href="/" target="_blank" rel="noreferrer">新窗口打开主界面</a>
+        </div>
+        <iframe id="boardFrame" title="中国象棋双人对战界面" src="/"></iframe>
+      </section>
+    </main>
+
+    <script src="./replay-controller.js"></script>
+  </body>
+</html>

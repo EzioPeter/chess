@@ -7,6 +7,7 @@ const { spawn } = require("node:child_process");
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3000);
 const UI_DIR = __dirname;
+const INTERFACE_DIR = path.resolve(__dirname, "../interface");
 const ENGINE_DIR = path.resolve(__dirname, "../Pikafish/src");
 const ENGINE_BIN = path.join(ENGINE_DIR, "pikafish");
 const START_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1";
@@ -19,6 +20,10 @@ const MIME_TYPES = {
   ".png": "image/png",
   ".svg": "image/svg+xml",
 };
+const INTERFACE_COMMAND_LIMIT = 200;
+
+let nextInterfaceCommandId = 1;
+const interfaceCommands = [];
 
 class UciEngine {
   constructor() {
@@ -290,12 +295,86 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
+function enqueueInterfaceCommand(command) {
+  const nextCommand = {
+    id: nextInterfaceCommandId,
+    type: command.type,
+    side: command.side ?? null,
+    notation: command.notation ?? null,
+    reset: typeof command.reset === "boolean" ? command.reset : undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  nextInterfaceCommandId += 1;
+  interfaceCommands.push(nextCommand);
+
+  if (interfaceCommands.length > INTERFACE_COMMAND_LIMIT) {
+    interfaceCommands.splice(0, interfaceCommands.length - INTERFACE_COMMAND_LIMIT);
+  }
+
+  return nextCommand;
+}
+
+function normalizeCommandSide(side) {
+  if (side === "red" || side === "black") {
+    return side;
+  }
+
+  if (side === "红" || side === "红方") {
+    return "red";
+  }
+
+  if (side === "黑" || side === "黑方") {
+    return "black";
+  }
+
+  return null;
+}
+
+function validateInterfaceCommand(body) {
+  const type = typeof body?.type === "string" ? body.type.trim() : "";
+
+  if (type === "move") {
+    const side = normalizeCommandSide(body.side);
+    const notation = typeof body.notation === "string" ? body.notation.trim() : "";
+
+    if (!side) {
+      throw new Error("move 命令需要提供 side，且只能是 red 或 black。");
+    }
+
+    if (!notation) {
+      throw new Error("move 命令需要提供 notation。");
+    }
+
+    return { type, side, notation };
+  }
+
+  if (type === "reset" || type === "prepare") {
+    return {
+      type,
+      reset: body.reset !== false,
+    };
+  }
+
+  throw new Error("不支持的 interface 命令类型。");
+}
+
 async function serveStatic(req, res) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  const pathname = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
-  const resolvedPath = path.resolve(UI_DIR, `.${pathname}`);
+  let pathname = requestUrl.pathname;
 
-  if (!resolvedPath.startsWith(UI_DIR)) {
+  if (pathname === "/") {
+    pathname = "/index.html";
+  } else if (pathname === "/interface" || pathname === "/interface/") {
+    pathname = "/interface/index.html";
+  }
+
+  const isInterfaceRequest = pathname.startsWith("/interface/");
+  const rootDir = isInterfaceRequest ? INTERFACE_DIR : UI_DIR;
+  const relativePath = isInterfaceRequest ? pathname.slice("/interface".length) || "/index.html" : pathname;
+  const resolvedPath = path.resolve(rootDir, `.${relativePath}`);
+
+  if (!resolvedPath.startsWith(rootDir)) {
     sendJson(res, 403, { error: "禁止访问该路径。" });
     return;
   }
@@ -334,6 +413,26 @@ const server = http.createServer(async (req, res) => {
         movetime: body.movetime,
       });
       sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/interface/commands") {
+      const after = Math.max(0, Number(requestUrl.searchParams.get("after")) || 0);
+      const commands = interfaceCommands.filter((command) => command.id > after);
+      sendJson(res, 200, {
+        commands,
+        latestId: interfaceCommands.at(-1)?.id ?? 0,
+      });
+      return;
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/interface/command") {
+      const body = await readRequestBody(req);
+      const command = enqueueInterfaceCommand(validateInterfaceCommand(body));
+      sendJson(res, 200, {
+        ok: true,
+        command,
+      });
       return;
     }
 
