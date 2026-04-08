@@ -414,7 +414,8 @@ button {
 .board-svg,
 .legal-layer,
 .pieces-layer,
-.move-highlight {
+.move-highlight,
+.hint-arrow-layer {
   position: absolute;
   inset: 0;
 }
@@ -532,6 +533,32 @@ button {
 .move-highlight {
   pointer-events: none;
   z-index: 2;
+}
+
+.hint-arrow-layer {
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  overflow: visible;
+  transition: opacity 0.18s ease;
+}
+
+.hint-arrow-layer.is-visible {
+  opacity: 1;
+}
+
+.hint-arrow-line {
+  fill: none;
+  stroke: rgba(122, 214, 88, 0.88);
+  stroke-width: 0.34;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  marker-end: url(#hintArrowHead);
+  filter: drop-shadow(0 0 3px rgba(122, 214, 88, 0.18));
+}
+
+.hint-arrow-head {
+  fill: rgba(122, 214, 88, 0.9);
 }
 
 .legal-point {

@@ -23,6 +23,7 @@
         <div class="hero-actions">
           <div class="mode-tabs" aria-label="模式切换">
             <button class="mode-tab is-active" id="localModeBtn" type="button">本地双人</button>
+            <button class="mode-tab" id="localFlipBtn" type="button">红在下</button>
             <button class="mode-tab" id="engineModeBtn" type="button">Pikafish 对战</button>
             <button class="mode-tab" id="engineSideBtn" type="button">我执红</button>
             <button class="mode-tab" id="engineTimeBtn" type="button">思考 800ms</button>
@@ -129,6 +130,27 @@
               </svg>
 
               <div class="move-highlight" id="moveHighlight" aria-hidden="true"></div>
+              <svg
+                class="hint-arrow-layer"
+                id="hintArrowLayer"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <defs>
+                  <marker
+                    id="hintArrowHead"
+                    markerWidth="4"
+                    markerHeight="4"
+                    refX="3.5"
+                    refY="2"
+                    orient="auto"
+                  >
+                    <path class="hint-arrow-head" d="M0 0 L4 2 L0 4 Z" />
+                  </marker>
+                </defs>
+                <line class="hint-arrow-line" id="hintArrowLine" x1="0" y1="0" x2="0" y2="0" />
+              </svg>
               <div class="legal-layer" id="legalLayer"></div>
               <div class="pieces-layer" id="piecesLayer"></div>
             </div>

@@ -7,6 +7,8 @@ const piecesLayer = document.querySelector("#piecesLayer");
 const legalLayer = document.querySelector("#legalLayer");
 const moveList = document.querySelector("#moveList");
 const moveHighlight = document.querySelector("#moveHighlight");
+const hintArrowLayer = document.querySelector("#hintArrowLayer");
+const hintArrowLine = document.querySelector("#hintArrowLine");
 
 const undoBtn = document.querySelector("#undoBtn");
 const resetBtn = document.querySelector("#resetBtn");
@@ -14,6 +16,7 @@ const hintBtn = document.querySelector("#hintBtn");
 const themeSwitch = document.querySelector("#themeSwitch");
 
 const localModeBtn = document.querySelector("#localModeBtn");
+const localFlipBtn = document.querySelector("#localFlipBtn");
 const engineModeBtn = document.querySelector("#engineModeBtn");
 const engineSideBtn = document.querySelector("#engineSideBtn");
 const engineTimeBtn = document.querySelector("#engineTimeBtn");
@@ -58,6 +61,7 @@ const TTXQ_MATE_SCORE = 29999;
 const TTXQ_CHART_CAP = 1200;
 const POSITION_ANALYSIS_MOVETIME = 260;
 const ANALYSIS_SERIES_LIMIT = 36;
+const RED_NOTATION_NUMERALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
 
 const boardMetrics = {
   padX: 10,
@@ -150,6 +154,7 @@ function createInitialGameState() {
     hintTarget: null,
     checkSide: null,
     mode: DEFAULT_MODE,
+    localBottomSide: "red",
     engineSide: "black",
     engineThinking: false,
     engineAvailable: false,
@@ -245,7 +250,9 @@ function getHumanSide() {
 }
 
 function shouldFlipBoard() {
-  return gameState.mode === "engine" && getHumanSide() === "black";
+  return gameState.mode === "engine"
+    ? getHumanSide() === "black"
+    : gameState.localBottomSide === "black";
 }
 
 function toDisplayCoordinate(point) {
@@ -687,6 +694,79 @@ function formatCoord(point) {
   return `(${point.x + 1}, ${point.y + 1})`;
 }
 
+function hideHintArrow() {
+  hintArrowLayer.classList.remove("is-visible");
+}
+
+function formatNotationNumber(side, value) {
+  if (!Number.isInteger(value) || value < 1 || value > 9) {
+    return String(value);
+  }
+
+  return side === "red" ? RED_NOTATION_NUMERALS[value - 1] : String(value);
+}
+
+function getNotationFile(side, x) {
+  return side === "red" ? 9 - x : x + 1;
+}
+
+function buildNotationPrefix(piece, pieces) {
+  const sameFilePieces = pieces
+    .filter(
+      (candidate) =>
+        candidate.side === piece.side && candidate.type === piece.type && candidate.x === piece.x,
+    )
+    .sort((a, b) => (piece.side === "red" ? a.y - b.y : b.y - a.y));
+
+  const pieceIndex = sameFilePieces.findIndex((candidate) => candidate.id === piece.id);
+
+  if (sameFilePieces.length === 2) {
+    return `${pieceIndex === 0 ? "前" : "后"}${piece.label}`;
+  }
+
+  if (sameFilePieces.length === 3) {
+    return `${["前", "中", "后"][pieceIndex] ?? ""}${piece.label}`;
+  }
+
+  return `${piece.label}${formatNotationNumber(piece.side, getNotationFile(piece.side, piece.x))}`;
+}
+
+function formatChineseMoveNotation(piece, move, pieces = gameState.pieces) {
+  if (!piece || !move) {
+    return "";
+  }
+
+  const prefix = buildNotationPrefix(piece, pieces);
+  const forwardDelta = piece.side === "red" ? move.from.y - move.to.y : move.to.y - move.from.y;
+  const action = move.from.y === move.to.y ? "平" : forwardDelta > 0 ? "进" : "退";
+  const targetUsesFile = ["horse", "elephant", "advisor"].includes(piece.type) || action === "平";
+  const targetValue = targetUsesFile
+    ? getNotationFile(piece.side, move.to.x)
+    : Math.abs(move.to.y - move.from.y);
+
+  return `${prefix}${action}${formatNotationNumber(piece.side, targetValue)}`;
+}
+
+function getHintNotation() {
+  if (!gameState.hintTarget) {
+    return null;
+  }
+
+  const piece = getPieceById(gameState.pieces, gameState.hintTarget.pieceId);
+  if (!piece) {
+    return null;
+  }
+
+  return formatChineseMoveNotation(
+    piece,
+    {
+      from: { x: piece.x, y: piece.y },
+      to: { x: gameState.hintTarget.x, y: gameState.hintTarget.y },
+    },
+    gameState.pieces,
+  );
+}
+
 function toUciSquare(x, y) {
   return `${String.fromCharCode(97 + x)}${9 - y}`;
 }
@@ -908,6 +988,36 @@ function clearSelection({ keepHint = false } = {}) {
   }
 }
 
+function shouldAutoSuggestMove() {
+  return gameState.mode === "local" && gameState.engineAvailable && !gameState.winner;
+}
+
+function applySuggestedMoveHint(suggestedMove, { selectPiece = false } = {}) {
+  if (!suggestedMove) {
+    gameState.hintTarget = null;
+    return null;
+  }
+
+  const piece = getPieceById(gameState.pieces, suggestedMove.pieceId);
+  if (!piece) {
+    gameState.hintTarget = null;
+    return null;
+  }
+
+  if (selectPiece) {
+    gameState.selectedPieceId = suggestedMove.pieceId;
+    gameState.legalMoves = buildPieceLegalMoves(piece, gameState.pieces);
+  }
+
+  gameState.hintTarget = {
+    pieceId: suggestedMove.pieceId,
+    x: suggestedMove.to?.x ?? suggestedMove.x,
+    y: suggestedMove.to?.y ?? suggestedMove.y,
+  };
+  gameState.inspectedPieceId = suggestedMove.pieceId;
+  return piece;
+}
+
 function cancelPendingEngineRequest() {
   gameState.pendingEngineRequestId += 1;
   gameState.engineThinking = false;
@@ -954,6 +1064,11 @@ async function refreshPositionAnalysis(movetime = POSITION_ANALYSIS_MOVETIME) {
     gameState.lastEngineInfo = parsedInfo;
     gameState.positionAnalysisInfo = buildTtxqAnalysis(parsedInfo, analysisTurn);
     upsertAnalysisSeries(gameState.positionAnalysisInfo);
+
+    if (shouldAutoSuggestMove()) {
+      applySuggestedMoveHint(uciToMove(payload.bestmove ?? "", gameState.pieces));
+    }
+
     return true;
   } catch {
     return false;
@@ -986,7 +1101,9 @@ function selectPiece(pieceId, message) {
   const legalMoves = buildPieceLegalMoves(piece, gameState.pieces);
   gameState.selectedPieceId = piece.id;
   gameState.legalMoves = legalMoves;
-  gameState.hintTarget = null;
+  if (!shouldAutoSuggestMove()) {
+    gameState.hintTarget = null;
+  }
   setInspectorPiece(piece.id);
   gameState.statusText =
     message ?? `${getSideLabel(piece.side)}选中了${piece.label}，共有 ${legalMoves.length} 个合法落点。`;
@@ -1156,6 +1273,7 @@ function getEngineTimeLabel() {
 
 function resetGame(statusText = null) {
   const preservedMode = gameState.mode;
+  const preservedLocalBottomSide = gameState.localBottomSide;
   const preservedEngineSide = gameState.engineSide;
   const preservedEngineAvailable = gameState.engineAvailable;
   const preservedEngineReady = gameState.engineReady;
@@ -1168,6 +1286,7 @@ function resetGame(statusText = null) {
   const preservedPendingAnalysisRequestId = gameState.pendingAnalysisRequestId;
   gameState = createInitialGameState();
   gameState.mode = preservedMode;
+  gameState.localBottomSide = preservedLocalBottomSide;
   gameState.engineSide = preservedEngineSide;
   gameState.engineAvailable = preservedEngineAvailable;
   gameState.engineReady = preservedEngineReady;
@@ -1383,7 +1502,7 @@ async function handleHint() {
     return;
   }
 
-  if (gameState.mode === "engine" && gameState.engineAvailable) {
+  if (gameState.engineAvailable) {
     cancelPendingEngineRequest();
     const requestId = gameState.pendingEngineRequestId;
     gameState.engineThinking = true;
@@ -1409,19 +1528,14 @@ async function handleHint() {
         throw new Error(`无法解析提示着法 ${payload.bestmove}`);
       }
 
-      const piece = getPieceById(gameState.pieces, suggestedMove.pieceId);
-      gameState.selectedPieceId = suggestedMove.pieceId;
-      gameState.legalMoves = buildPieceLegalMoves(piece, gameState.pieces);
-      gameState.hintTarget = {
-        pieceId: suggestedMove.pieceId,
-        x: suggestedMove.to.x,
-        y: suggestedMove.to.y,
-      };
-      gameState.inspectedPieceId = suggestedMove.pieceId;
+      const piece = applySuggestedMoveHint(suggestedMove, { selectPiece: true });
+      if (!piece) {
+        throw new Error(`无法定位提示着法 ${payload.bestmove}`);
+      }
       gameState.lastEngineInfo = parseEngineInfo(payload.rawInfo ?? null);
       gameState.positionAnalysisInfo = buildTtxqAnalysis(gameState.lastEngineInfo, analysisTurn);
       upsertAnalysisSeries(gameState.positionAnalysisInfo);
-      gameState.statusText = `Pikafish 建议 ${piece.label} 走 ${payload.bestmove}。`;
+      gameState.statusText = `Pikafish 建议：${formatChineseMoveNotation(piece, suggestedMove)}。`;
       render();
       return;
     } catch (error) {
@@ -1448,21 +1562,11 @@ async function handleHint() {
     allMoves.find((move) => move.pieceType === "cannon") ??
     allMoves[0];
 
-  gameState.selectedPieceId = suggestedMove.pieceId;
-  gameState.legalMoves = buildPieceLegalMoves(
-    getPieceById(gameState.pieces, suggestedMove.pieceId),
-    gameState.pieces,
-  );
-  gameState.hintTarget = {
-    pieceId: suggestedMove.pieceId,
-    x: suggestedMove.x,
-    y: suggestedMove.y,
-  };
-  gameState.inspectedPieceId = suggestedMove.pieceId;
-  gameState.statusText = `提示：可考虑${suggestedMove.pieceLabel}走到${formatCoord({
-    x: suggestedMove.x,
-    y: suggestedMove.y,
-  })}。`;
+  const piece = applySuggestedMoveHint(suggestedMove, { selectPiece: true });
+  gameState.statusText = `建议着法：${formatChineseMoveNotation(
+    piece,
+    suggestedMove,
+  )}。`;
   render();
 }
 
@@ -1502,7 +1606,7 @@ async function handleIntersectionClick(x, y) {
 
   if (clickedPiece && canSelectPiece(clickedPiece)) {
     if (gameState.selectedPieceId === clickedPiece.id) {
-      clearSelection();
+      clearSelection({ keepHint: shouldAutoSuggestMove() });
       gameState.statusText = `${getSideLabel(gameState.turn)}取消了当前选子。`;
       render();
       return;
@@ -1530,7 +1634,7 @@ async function handleIntersectionClick(x, y) {
     return;
   }
 
-  clearSelection();
+  clearSelection({ keepHint: shouldAutoSuggestMove() });
   gameState.statusText = clickedPiece
     ? `现在轮到${getSideLabel(gameState.turn)}行棋。`
     : `${getSideLabel(gameState.turn)}行棋。`;
@@ -1554,6 +1658,16 @@ async function enableEngineMode() {
 function enableLocalMode() {
   gameState.mode = "local";
   resetGame("已切回本地双人模式。");
+}
+
+function toggleLocalBoardSide() {
+  if (gameState.mode !== "local" || gameState.engineThinking) {
+    return;
+  }
+
+  gameState.localBottomSide = getOppositeSide(gameState.localBottomSide);
+  gameState.statusText = `已切换为${getSideLabel(gameState.localBottomSide)}在下视角。`;
+  render();
 }
 
 async function toggleEngineSide() {
@@ -1652,6 +1766,10 @@ function renderMoveHighlight() {
   moveHighlight.style.setProperty("--to-x", `${toPos.left}%`);
   moveHighlight.style.setProperty("--to-y", `${toPos.top}%`);
   moveHighlight.classList.add("is-visible");
+}
+
+function renderHintArrow() {
+  hideHintArrow();
 }
 
 function renderMoveList() {
@@ -1791,6 +1909,7 @@ function renderOverview() {
     ? []
     : getAllLegalMoves(gameState.turn, gameState.pieces);
   const humanSide = getHumanSide();
+  const localBottomLabel = getSideLabel(gameState.localBottomSide);
 
   gameStatePill.classList.remove("is-busy", "is-error");
 
@@ -1813,7 +1932,7 @@ function renderOverview() {
   phaseLabel.textContent =
     gameState.mode === "engine"
       ? `人机对战 · 你执${getSideLabel(humanSide)}`
-      : `双人同屏 · 已吃 ${initialPieces.length - gameState.pieces.length} 子`;
+      : `双人同屏 · ${localBottomLabel}在下 · 已吃 ${initialPieces.length - gameState.pieces.length} 子`;
 
   turnStrip.textContent = gameState.winner
     ? `${getSideLabel(gameState.winner)}胜利`
@@ -1839,10 +1958,8 @@ function renderOverview() {
     : getSideLabel(gameState.turn);
 
   if (gameState.hintTarget) {
-    engineSuggestion.textContent = `提示着法 ${toUciSquare(
-      gameState.hintTarget.x,
-      gameState.hintTarget.y,
-    )}`;
+    const hintNotation = getHintNotation();
+    engineSuggestion.textContent = hintNotation ? `最佳着法：${hintNotation}` : "最佳着法已生成";
     return;
   }
 
@@ -1870,7 +1987,8 @@ function renderOverview() {
 
 function renderPlayerCards() {
   const activeSide = gameState.winner ?? gameState.turn;
-  const bottomSide = gameState.mode === "engine" ? getHumanSide() ?? "red" : "red";
+  const bottomSide =
+    gameState.mode === "engine" ? getHumanSide() ?? "red" : gameState.localBottomSide;
   const topSide = getOppositeSide(bottomSide);
 
   function applySlot(card, avatarEl, sideEl, nameEl, tagEl, side) {
@@ -1912,9 +2030,18 @@ function renderButtons() {
 
   resetBtn.classList.toggle("is-loading", gameState.engineThinking);
   resetBtn.textContent = gameState.engineThinking ? "引擎思考中" : "重新开局";
-  hintBtn.textContent = gameState.mode === "engine" ? "引擎提示" : "提示着法";
+  hintBtn.textContent = gameState.engineAvailable ? "引擎提示" : "提示着法";
 
   localModeBtn.classList.toggle("is-active", gameState.mode === "local");
+  localFlipBtn.textContent =
+    gameState.mode === "local"
+      ? `${getSideLabel(gameState.localBottomSide)}在下`
+      : "引擎自动视角";
+  localFlipBtn.classList.toggle(
+    "is-active",
+    gameState.mode === "local" && gameState.localBottomSide === "black",
+  );
+  localFlipBtn.disabled = gameState.mode !== "local" || gameState.engineThinking;
   engineModeBtn.classList.toggle("is-active", gameState.mode === "engine");
   engineModeBtn.classList.toggle("is-accent", gameState.mode === "engine" && gameState.engineAvailable);
 
@@ -1929,6 +2056,7 @@ function render() {
   renderPieces();
   renderLegalMoves();
   renderMoveHighlight();
+  renderHintArrow();
   renderMoveList();
   renderAnalysisCard();
   renderOverview();
@@ -1955,6 +2083,10 @@ hintBtn.addEventListener("click", async () => {
 
 localModeBtn.addEventListener("click", () => {
   enableLocalMode();
+});
+
+localFlipBtn.addEventListener("click", () => {
+  toggleLocalBoardSide();
 });
 
 engineModeBtn.addEventListener("click", async () => {
