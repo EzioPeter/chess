@@ -175,6 +175,39 @@
                 <strong id="turnLabel">红方</strong>
               </article>
             </div>
+
+            <section class="analysis-card" aria-label="天天象棋风格分析">
+              <div class="analysis-card-head">
+                <div>
+                  <p class="panel-kicker">天天象棋风格值</p>
+                  <strong class="analysis-score" id="analysisScoreValue">0</strong>
+                </div>
+                <span class="analysis-pill is-even" id="analysisVerdict">均势</span>
+              </div>
+
+              <div class="analysis-meta">
+                <span id="analysisRedValue">红优 0</span>
+                <span id="analysisRawValue">原始 +0.00</span>
+                <span id="analysisBlackValue">黑优 0</span>
+              </div>
+
+              <div class="analysis-trend-head">
+                <span>局势走势</span>
+                <strong id="analysisTrendSummary">等待引擎分析</strong>
+              </div>
+
+              <svg
+                class="analysis-trend-chart"
+                id="analysisTrendChart"
+                viewBox="0 0 320 132"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <line class="analysis-trend-zero" x1="0" y1="66" x2="320" y2="66"></line>
+                <polyline class="analysis-trend-line" id="analysisTrendLine" points=""></polyline>
+                <circle class="analysis-trend-dot" id="analysisTrendDot" cx="160" cy="66" r="0"></circle>
+              </svg>
+            </section>
           </section>
 
           <section class="panel controls-panel">

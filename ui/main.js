@@ -23,8 +23,12 @@ const phaseLabel = document.querySelector("#phaseLabel");
 const turnStrip = document.querySelector("#turnStrip");
 const playerBlackCard = document.querySelector("#playerBlackCard");
 const playerRedCard = document.querySelector("#playerRedCard");
+const topPlayerAvatar = playerBlackCard.querySelector(".avatar");
+const topPlayerSide = playerBlackCard.querySelector(".player-side");
 const blackPlayerName = document.querySelector("#blackPlayerName");
 const blackPlayerTag = document.querySelector("#blackPlayerTag");
+const bottomPlayerAvatar = playerRedCard.querySelector(".avatar");
+const bottomPlayerSide = playerRedCard.querySelector(".player-side");
 const redPlayerName = document.querySelector("#redPlayerName");
 const redPlayerTag = document.querySelector("#redPlayerTag");
 
@@ -34,10 +38,26 @@ const engineSuggestion = document.querySelector("#engineSuggestion");
 const currentStepEl = document.querySelector("#currentStep");
 const turnLabel = document.querySelector("#turnLabel");
 const evalChip = document.querySelector("#evalChip");
+const analysisScoreValue = document.querySelector("#analysisScoreValue");
+const analysisVerdict = document.querySelector("#analysisVerdict");
+const analysisRedValue = document.querySelector("#analysisRedValue");
+const analysisRawValue = document.querySelector("#analysisRawValue");
+const analysisBlackValue = document.querySelector("#analysisBlackValue");
+const analysisTrendSummary = document.querySelector("#analysisTrendSummary");
+const analysisTrendChart = document.querySelector("#analysisTrendChart");
+const analysisTrendLine = document.querySelector("#analysisTrendLine");
+const analysisTrendDot = document.querySelector("#analysisTrendDot");
 
 const inspectorTitle = document.querySelector("#inspectorTitle");
 const inspectorBadge = document.querySelector("#inspectorBadge");
 const inspectorText = document.querySelector("#inspectorText");
+
+const TTXQ_BALANCE_THRESHOLD = 48;
+const TTXQ_CP_CAP = 999;
+const TTXQ_MATE_SCORE = 29999;
+const TTXQ_CHART_CAP = 1200;
+const POSITION_ANALYSIS_MOVETIME = 260;
+const ANALYSIS_SERIES_LIMIT = 36;
 
 const boardMetrics = {
   padX: 10,
@@ -137,8 +157,12 @@ function createInitialGameState() {
     engineStatus: "未连接",
     engineMoveTime: 800,
     pendingEngineRequestId: 0,
+    pendingAnalysisRequestId: 0,
     uciMoves: [],
     lastEngineInfo: null,
+    positionAnalysisInfo: null,
+    analysisSeries: [],
+    analysisThinking: false,
   };
 }
 
@@ -162,6 +186,23 @@ function cloneLastMove(lastMove) {
     : null;
 }
 
+function cloneEngineInfo(info) {
+  return info
+    ? {
+        ...info,
+        pv: Array.isArray(info.pv) ? [...info.pv] : [],
+      }
+    : null;
+}
+
+function cloneAnalysisInfo(info) {
+  return info ? { ...info } : null;
+}
+
+function cloneAnalysisSeries(series) {
+  return series.map((entry) => ({ ...entry }));
+}
+
 function createSnapshot() {
   return {
     pieces: clonePieces(gameState.pieces),
@@ -171,7 +212,9 @@ function createSnapshot() {
     inspectedPieceId: gameState.inspectedPieceId,
     checkSide: gameState.checkSide,
     uciMoves: [...gameState.uciMoves],
-    lastEngineInfo: gameState.lastEngineInfo ? { ...gameState.lastEngineInfo } : null,
+    lastEngineInfo: cloneEngineInfo(gameState.lastEngineInfo),
+    positionAnalysisInfo: cloneAnalysisInfo(gameState.positionAnalysisInfo),
+    analysisSeries: cloneAnalysisSeries(gameState.analysisSeries),
   };
 }
 
@@ -183,7 +226,9 @@ function restoreSnapshot(snapshot) {
   gameState.inspectedPieceId = snapshot.inspectedPieceId;
   gameState.checkSide = snapshot.checkSide;
   gameState.uciMoves = [...snapshot.uciMoves];
-  gameState.lastEngineInfo = snapshot.lastEngineInfo ? { ...snapshot.lastEngineInfo } : null;
+  gameState.lastEngineInfo = cloneEngineInfo(snapshot.lastEngineInfo);
+  gameState.positionAnalysisInfo = cloneAnalysisInfo(snapshot.positionAnalysisInfo);
+  gameState.analysisSeries = cloneAnalysisSeries(snapshot.analysisSeries ?? []);
   clearSelection();
 }
 
@@ -197,6 +242,40 @@ function getOppositeSide(side) {
 
 function getHumanSide() {
   return gameState.mode === "engine" ? getOppositeSide(gameState.engineSide) : null;
+}
+
+function shouldFlipBoard() {
+  return gameState.mode === "engine" && getHumanSide() === "black";
+}
+
+function toDisplayCoordinate(point) {
+  if (!point) {
+    return null;
+  }
+
+  if (!shouldFlipBoard()) {
+    return { x: point.x, y: point.y };
+  }
+
+  return {
+    x: 8 - point.x,
+    y: 9 - point.y,
+  };
+}
+
+function toGameCoordinate(point) {
+  if (!point) {
+    return null;
+  }
+
+  if (!shouldFlipBoard()) {
+    return { x: point.x, y: point.y };
+  }
+
+  return {
+    x: 8 - point.x,
+    y: 9 - point.y,
+  };
 }
 
 function isEngineTurn() {
@@ -571,9 +650,10 @@ function getAllLegalMoves(side, pieces) {
 }
 
 function getPercentPosition(x, y) {
+  const displayPoint = toDisplayCoordinate({ x, y });
   return {
-    left: boardMetrics.padX + x * boardMetrics.cellX,
-    top: boardMetrics.padY + y * boardMetrics.cellY,
+    left: boardMetrics.padX + displayPoint.x * boardMetrics.cellX,
+    top: boardMetrics.padY + displayPoint.y * boardMetrics.cellY,
   };
 }
 
@@ -582,8 +662,11 @@ function getBoardCoordinateFromEvent(event) {
   const percentX = ((event.clientX - rect.left) / rect.width) * 100;
   const percentY = ((event.clientY - rect.top) / rect.height) * 100;
 
-  const x = Math.round((percentX - boardMetrics.padX) / boardMetrics.cellX);
-  const y = Math.round((percentY - boardMetrics.padY) / boardMetrics.cellY);
+  const displayX = Math.round((percentX - boardMetrics.padX) / boardMetrics.cellX);
+  const displayY = Math.round((percentY - boardMetrics.padY) / boardMetrics.cellY);
+  const point = toGameCoordinate({ x: displayX, y: displayY });
+  const x = point.x;
+  const y = point.y;
 
   if (!isInsideBoard(x, y)) {
     return null;
@@ -676,6 +759,96 @@ function formatEngineScore(info) {
   return null;
 }
 
+function mapCpToTtxqScore(scoreCp) {
+  if (!Number.isFinite(scoreCp)) {
+    return 0;
+  }
+
+  return Math.round(TTXQ_CP_CAP * Math.tanh(scoreCp / 300));
+}
+
+function buildTtxqAnalysis(info, sideToMove = gameState.turn) {
+  if (!info) {
+    return null;
+  }
+
+  const rawScoreLabel = formatEngineScore(info) ?? "无分数";
+  const normalizedSideToMove = sideToMove === "black" ? "black" : "red";
+  const redPerspectiveFactor = normalizedSideToMove === "red" ? 1 : -1;
+  let mappedScore = 0;
+  let chartScore = 0;
+
+  if (typeof info.scoreMate === "number" && info.scoreMate !== 0) {
+    const redPerspectiveMate = info.scoreMate * redPerspectiveFactor;
+    mappedScore = redPerspectiveMate > 0 ? TTXQ_MATE_SCORE : -TTXQ_MATE_SCORE;
+    chartScore = redPerspectiveMate > 0 ? TTXQ_CHART_CAP : -TTXQ_CHART_CAP;
+  } else if (typeof info.scoreCp === "number") {
+    const redPerspectiveCp = info.scoreCp * redPerspectiveFactor;
+    mappedScore = mapCpToTtxqScore(redPerspectiveCp);
+    chartScore = mappedScore;
+
+    if (Math.abs(mappedScore) <= TTXQ_BALANCE_THRESHOLD) {
+      mappedScore = 0;
+      chartScore = 0;
+    }
+  }
+
+  const advantageSide =
+    mappedScore > 0 ? "red" : mappedScore < 0 ? "black" : "even";
+  const advantageValue = Math.abs(mappedScore);
+  const verdict =
+    advantageSide === "red"
+      ? advantageValue === TTXQ_MATE_SCORE
+        ? "红优绝杀"
+        : "红优"
+      : advantageSide === "black"
+        ? advantageValue === TTXQ_MATE_SCORE
+          ? "黑优绝杀"
+          : "黑优"
+        : "均势";
+
+  return {
+    depth: typeof info.depth === "number" ? info.depth : null,
+    sideToMove: normalizedSideToMove,
+    rawScoreLabel,
+    rawDisplayLabel: `原始 ${rawScoreLabel} · ${getSideLabel(normalizedSideToMove)}视角`,
+    mappedScore,
+    chartScore,
+    advantageSide,
+    verdict,
+    scoreText: String(advantageValue),
+    ttxqLabel:
+      advantageSide === "even" ? "均势" : `${advantageSide === "red" ? "红优" : "黑优"} ${advantageValue}`,
+    redLabel: `红优 ${mappedScore > 0 ? advantageValue : 0}`,
+    blackLabel: `黑优 ${mappedScore < 0 ? advantageValue : 0}`,
+  };
+}
+
+function upsertAnalysisSeries(analysis) {
+  if (!analysis) {
+    return;
+  }
+
+  const nextEntry = {
+    ply: gameState.uciMoves.length,
+    mappedScore: analysis.mappedScore,
+    chartScore: analysis.chartScore,
+    verdict: analysis.verdict,
+    ttxqLabel: analysis.ttxqLabel,
+    rawScoreLabel: analysis.rawScoreLabel,
+  };
+
+  const previous = gameState.analysisSeries.at(-1);
+  if (previous && previous.ply === nextEntry.ply) {
+    gameState.analysisSeries[gameState.analysisSeries.length - 1] = nextEntry;
+  } else {
+    gameState.analysisSeries.push(nextEntry);
+    if (gameState.analysisSeries.length > ANALYSIS_SERIES_LIMIT) {
+      gameState.analysisSeries = gameState.analysisSeries.slice(-ANALYSIS_SERIES_LIMIT);
+    }
+  }
+}
+
 function formatEngineInfoShort(info) {
   if (!info) {
     return gameState.engineStatus;
@@ -738,6 +911,58 @@ function clearSelection({ keepHint = false } = {}) {
 function cancelPendingEngineRequest() {
   gameState.pendingEngineRequestId += 1;
   gameState.engineThinking = false;
+}
+
+function cancelPendingAnalysisRequest() {
+  gameState.pendingAnalysisRequestId += 1;
+  gameState.analysisThinking = false;
+}
+
+function shouldAutoAnalyzePosition(actor) {
+  if (!gameState.engineAvailable || gameState.engineThinking) {
+    return false;
+  }
+
+  if (gameState.mode === "engine") {
+    return actor === "engine" || Boolean(gameState.winner);
+  }
+
+  return true;
+}
+
+async function refreshPositionAnalysis(movetime = POSITION_ANALYSIS_MOVETIME) {
+  if (!gameState.engineAvailable || gameState.engineThinking) {
+    return false;
+  }
+
+  const analysisTurn = gameState.turn;
+  const requestId = gameState.pendingAnalysisRequestId + 1;
+  gameState.pendingAnalysisRequestId = requestId;
+  gameState.analysisThinking = true;
+
+  try {
+    const payload = await requestEngineAnalysis(movetime);
+    if (requestId !== gameState.pendingAnalysisRequestId) {
+      return false;
+    }
+
+    const parsedInfo = parseEngineInfo(payload.rawInfo ?? null);
+    if (!parsedInfo) {
+      return false;
+    }
+
+    gameState.lastEngineInfo = parsedInfo;
+    gameState.positionAnalysisInfo = buildTtxqAnalysis(parsedInfo, analysisTurn);
+    upsertAnalysisSeries(gameState.positionAnalysisInfo);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (requestId === gameState.pendingAnalysisRequestId) {
+      gameState.analysisThinking = false;
+      render();
+    }
+  }
 }
 
 function canSelectPiece(piece) {
@@ -879,6 +1104,10 @@ function performMove(
     render();
   }
 
+  if (shouldAutoAnalyzePosition(actor)) {
+    void refreshPositionAnalysis();
+  }
+
   return true;
 }
 
@@ -915,6 +1144,10 @@ function handleUndo() {
   }
 
   render();
+
+  if (gameState.engineAvailable && !isEngineTurn()) {
+    void refreshPositionAnalysis();
+  }
 }
 
 function getEngineTimeLabel() {
@@ -930,7 +1163,9 @@ function resetGame(statusText = null) {
   const preservedEngineMoveTime = gameState.engineMoveTime;
 
   cancelPendingEngineRequest();
+  cancelPendingAnalysisRequest();
   const preservedPendingEngineRequestId = gameState.pendingEngineRequestId;
+  const preservedPendingAnalysisRequestId = gameState.pendingAnalysisRequestId;
   gameState = createInitialGameState();
   gameState.mode = preservedMode;
   gameState.engineSide = preservedEngineSide;
@@ -939,6 +1174,7 @@ function resetGame(statusText = null) {
   gameState.engineStatus = preservedEngineStatus;
   gameState.engineMoveTime = preservedEngineMoveTime;
   gameState.pendingEngineRequestId = preservedPendingEngineRequestId;
+  gameState.pendingAnalysisRequestId = preservedPendingAnalysisRequestId;
   gameState.statusText =
     statusText ??
     (preservedMode === "engine" && preservedEngineAvailable
@@ -946,6 +1182,10 @@ function resetGame(statusText = null) {
       : "红方先行，点击棋子开始对局。");
 
   render();
+
+  if (gameState.engineAvailable && !isEngineTurn()) {
+    void refreshPositionAnalysis();
+  }
 }
 
 async function handleReset() {
@@ -1043,6 +1283,11 @@ async function syncEngineStatus({ silent = false } = {}) {
     gameState.engineReady = Boolean(payload.ready);
     gameState.engineStatus = payload.message ?? (payload.available ? "Pikafish 已连接" : "未连接");
 
+    if (!payload.available) {
+      gameState.positionAnalysisInfo = null;
+      gameState.analysisSeries = [];
+    }
+
     if (!silent && !payload.available) {
       gameState.statusText =
         "没有检测到 Pikafish bridge，请从 ui 目录运行 `node server.js` 后再切换引擎模式。";
@@ -1054,6 +1299,8 @@ async function syncEngineStatus({ silent = false } = {}) {
     gameState.engineAvailable = false;
     gameState.engineReady = false;
     gameState.engineStatus = "未连接";
+    gameState.positionAnalysisInfo = null;
+    gameState.analysisSeries = [];
 
     if (!silent) {
       gameState.statusText =
@@ -1143,10 +1390,11 @@ async function handleHint() {
     gameState.statusText = "正在请求 Pikafish 提示...";
     render();
 
-    try {
-      const payload = await requestEngineAnalysis(Math.min(gameState.engineMoveTime, 800));
-      if (requestId !== gameState.pendingEngineRequestId) {
-        return;
+  try {
+    const analysisTurn = gameState.turn;
+    const payload = await requestEngineAnalysis(Math.min(gameState.engineMoveTime, 800));
+    if (requestId !== gameState.pendingEngineRequestId) {
+      return;
       }
 
       gameState.engineThinking = false;
@@ -1171,6 +1419,8 @@ async function handleHint() {
       };
       gameState.inspectedPieceId = suggestedMove.pieceId;
       gameState.lastEngineInfo = parseEngineInfo(payload.rawInfo ?? null);
+      gameState.positionAnalysisInfo = buildTtxqAnalysis(gameState.lastEngineInfo, analysisTurn);
+      upsertAnalysisSeries(gameState.positionAnalysisInfo);
       gameState.statusText = `Pikafish 建议 ${piece.label} 走 ${payload.bestmove}。`;
       render();
       return;
@@ -1436,6 +1686,106 @@ function renderMoveList() {
   moveList.replaceChildren(fragment);
 }
 
+function renderAnalysisCard() {
+  const analysis = gameState.positionAnalysisInfo;
+
+  analysisVerdict.className = "analysis-pill";
+  analysisTrendChart.className = "analysis-trend-chart";
+  analysisTrendLine.className = "analysis-trend-line";
+  analysisTrendDot.className = "analysis-trend-dot";
+
+  if (!analysis) {
+    analysisVerdict.classList.add("is-even");
+    analysisVerdict.textContent = gameState.engineAvailable ? "等待分析" : "引擎离线";
+    analysisScoreValue.textContent = "0";
+    analysisRedValue.textContent = "红优 0";
+    analysisRawValue.textContent = gameState.engineAvailable ? "原始 等待中" : "原始 不可用";
+    analysisBlackValue.textContent = "黑优 0";
+    analysisTrendSummary.textContent = gameState.engineAvailable ? "等待引擎分析" : "需要先连接引擎";
+    analysisTrendLine.setAttribute("points", "");
+    analysisTrendDot.setAttribute("r", "0");
+    return;
+  }
+
+  analysisVerdict.classList.add(
+    analysis.advantageSide === "red"
+      ? "is-red"
+      : analysis.advantageSide === "black"
+        ? "is-black"
+        : "is-even",
+  );
+  analysisTrendChart.classList.add(
+    analysis.advantageSide === "red"
+      ? "is-red"
+      : analysis.advantageSide === "black"
+        ? "is-black"
+        : "is-even",
+  );
+  analysisTrendLine.classList.add(
+    analysis.advantageSide === "red"
+      ? "is-red"
+      : analysis.advantageSide === "black"
+        ? "is-black"
+        : "is-even",
+  );
+  analysisTrendDot.classList.add(
+    analysis.advantageSide === "red"
+      ? "is-red"
+      : analysis.advantageSide === "black"
+        ? "is-black"
+        : "is-even",
+  );
+
+  analysisVerdict.textContent = analysis.verdict;
+  analysisScoreValue.textContent = analysis.scoreText;
+  analysisRedValue.textContent = analysis.redLabel;
+  analysisRawValue.textContent = analysis.rawDisplayLabel;
+  analysisBlackValue.textContent = analysis.blackLabel;
+  analysisTrendSummary.textContent = analysis.depth
+    ? `${analysis.ttxqLabel} · 深度 ${analysis.depth}`
+    : analysis.ttxqLabel;
+
+  const series = gameState.analysisSeries.slice(-24);
+  if (!series.length) {
+    analysisTrendLine.setAttribute("points", "");
+    analysisTrendDot.setAttribute("r", "0");
+    return;
+  }
+
+  const width = 320;
+  const height = 132;
+  const padX = 10;
+  const padY = 10;
+  const zeroY = height / 2;
+  const maxAbs = Math.max(
+    333,
+    ...series.map((entry) => Math.abs(entry.chartScore || 0)),
+  );
+  const range = maxAbs * 1.08;
+
+  const pointObjects = series.map((entry, index) => {
+    const x =
+      series.length === 1
+        ? width / 2
+        : padX + (index * (width - padX * 2)) / (series.length - 1);
+    const y = zeroY - ((entry.chartScore || 0) / range) * (zeroY - padY);
+    return {
+      x,
+      y,
+    };
+  });
+
+  const points = pointObjects
+    .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+    .join(" ");
+  const lastPoint = pointObjects.at(-1) ?? { x: width / 2, y: zeroY };
+
+  analysisTrendLine.setAttribute("points", points);
+  analysisTrendDot.setAttribute("cx", lastPoint.x.toFixed(1));
+  analysisTrendDot.setAttribute("cy", lastPoint.y.toFixed(1));
+  analysisTrendDot.setAttribute("r", "4.5");
+}
+
 function renderOverview() {
   const currentLegalMoves = gameState.winner
     ? []
@@ -1471,7 +1821,9 @@ function renderOverview() {
       ? `Pikafish 执${getSideLabel(gameState.engineSide)}思考中`
       : `${getSideLabel(gameState.turn)}行棋`;
 
-  if (gameState.mode === "engine") {
+  if (gameState.positionAnalysisInfo) {
+    evalChip.textContent = gameState.positionAnalysisInfo.ttxqLabel;
+  } else if (gameState.mode === "engine") {
     evalChip.textContent = formatEngineInfoShort(gameState.lastEngineInfo) || gameState.engineStatus;
   } else {
     evalChip.textContent = gameState.checkSide
@@ -1500,8 +1852,11 @@ function renderOverview() {
     return;
   }
 
-  if (gameState.mode === "engine" && gameState.lastEngineInfo) {
-    engineSuggestion.textContent = formatEngineInfoShort(gameState.lastEngineInfo);
+  if (gameState.positionAnalysisInfo) {
+    const depthText = gameState.positionAnalysisInfo.depth
+      ? ` · 深度 ${gameState.positionAnalysisInfo.depth}`
+      : "";
+    engineSuggestion.textContent = `${gameState.positionAnalysisInfo.ttxqLabel} · ${gameState.positionAnalysisInfo.rawDisplayLabel}${depthText}`;
     return;
   }
 
@@ -1515,30 +1870,40 @@ function renderOverview() {
 
 function renderPlayerCards() {
   const activeSide = gameState.winner ?? gameState.turn;
+  const bottomSide = gameState.mode === "engine" ? getHumanSide() ?? "red" : "red";
+  const topSide = getOppositeSide(bottomSide);
 
-  playerRedCard.classList.toggle("is-active", activeSide === "red");
-  playerBlackCard.classList.toggle("is-active", activeSide === "black");
-  playerRedCard.classList.toggle("is-in-check", gameState.checkSide === "red");
-  playerBlackCard.classList.toggle("is-in-check", gameState.checkSide === "black");
+  function applySlot(card, avatarEl, sideEl, nameEl, tagEl, side) {
+    const isEngineSeat = gameState.mode === "engine" && side === gameState.engineSide;
+    const isHumanSeat = gameState.mode === "engine" && side === getHumanSide();
 
-  if (gameState.mode === "engine") {
-    if (gameState.engineSide === "black") {
-      blackPlayerName.textContent = "Pikafish Engine";
-      blackPlayerTag.textContent = "UCI · NNUE";
-      redPlayerName.textContent = "本地玩家";
-      redPlayerTag.textContent = "你";
-    } else {
-      redPlayerName.textContent = "Pikafish Engine";
-      redPlayerTag.textContent = "UCI · NNUE";
-      blackPlayerName.textContent = "本地玩家";
-      blackPlayerTag.textContent = "你";
+    card.classList.toggle("is-active", activeSide === side);
+    card.classList.toggle("is-in-check", gameState.checkSide === side);
+
+    avatarEl.classList.toggle("avatar-red", side === "red");
+    avatarEl.classList.toggle("avatar-dark", side === "black");
+    avatarEl.textContent = side === "red" ? "红" : "黑";
+    sideEl.textContent = getSideLabel(side);
+    tagEl.classList.toggle("rank-chip-red", side === "red");
+
+    if (isEngineSeat) {
+      nameEl.textContent = "Pikafish Engine";
+      tagEl.textContent = "UCI · NNUE";
+      return;
     }
-  } else {
-    blackPlayerName.textContent = "云隐棋手";
-    blackPlayerTag.textContent = "大师 2341";
-    redPlayerName.textContent = "流火棋馆";
-    redPlayerTag.textContent = "宗师 2478";
+
+    if (isHumanSeat) {
+      nameEl.textContent = "本地玩家";
+      tagEl.textContent = "你";
+      return;
+    }
+
+    nameEl.textContent = side === "black" ? "云隐棋手" : "流火棋馆";
+    tagEl.textContent = side === "black" ? "大师 2341" : "宗师 2478";
   }
+
+  applySlot(playerBlackCard, topPlayerAvatar, topPlayerSide, blackPlayerName, blackPlayerTag, topSide);
+  applySlot(playerRedCard, bottomPlayerAvatar, bottomPlayerSide, redPlayerName, redPlayerTag, bottomSide);
 }
 
 function renderButtons() {
@@ -1565,6 +1930,7 @@ function render() {
   renderLegalMoves();
   renderMoveHighlight();
   renderMoveList();
+  renderAnalysisCard();
   renderOverview();
   renderPlayerCards();
   renderButtons();
@@ -1624,6 +1990,8 @@ window.addEventListener("load", async () => {
 
     if (isEngineTurn()) {
       await requestEngineMove("Pikafish 先手开局中...");
+    } else {
+      await refreshPositionAnalysis();
     }
   } else {
     gameState.mode = "local";
