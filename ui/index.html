@@ -232,6 +232,31 @@
             </section>
           </section>
 
+          <section class="panel yolo-panel" aria-label="ROS2 YOLO 实时识别">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">ROS2 YOLO</p>
+                <h3 id="yoloTitle">等待视觉流</h3>
+              </div>
+              <span class="yolo-pill" id="yoloStatusPill">未连接</span>
+            </div>
+
+            <div class="yolo-preview">
+              <img id="yoloPreview" alt="YOLO 实时识别画面" />
+              <span id="yoloPreviewEmpty">等待 /red/image_raw</span>
+            </div>
+
+            <div class="yolo-meta">
+              <span id="yoloTopicLabel">/red/image_raw</span>
+              <span id="yoloFrameLabel">0 帧</span>
+              <span id="yoloCommandLabel">未触发命令</span>
+            </div>
+
+            <ol class="yolo-detection-list" id="yoloDetectionList">
+              <li>暂无检测结果</li>
+            </ol>
+          </section>
+
           <section class="panel controls-panel">
             <div class="panel-head">
               <div>

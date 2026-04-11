@@ -51,6 +51,15 @@ const analysisTrendChart = document.querySelector("#analysisTrendChart");
 const analysisTrendLine = document.querySelector("#analysisTrendLine");
 const analysisTrendDot = document.querySelector("#analysisTrendDot");
 
+const yoloTitle = document.querySelector("#yoloTitle");
+const yoloStatusPill = document.querySelector("#yoloStatusPill");
+const yoloPreview = document.querySelector("#yoloPreview");
+const yoloPreviewEmpty = document.querySelector("#yoloPreviewEmpty");
+const yoloTopicLabel = document.querySelector("#yoloTopicLabel");
+const yoloFrameLabel = document.querySelector("#yoloFrameLabel");
+const yoloCommandLabel = document.querySelector("#yoloCommandLabel");
+const yoloDetectionList = document.querySelector("#yoloDetectionList");
+
 const inspectorTitle = document.querySelector("#inspectorTitle");
 const inspectorBadge = document.querySelector("#inspectorBadge");
 const inspectorText = document.querySelector("#inspectorText");
@@ -62,6 +71,9 @@ const TTXQ_CHART_CAP = 1200;
 const POSITION_ANALYSIS_MOVETIME = 260;
 const ANALYSIS_SERIES_LIMIT = 36;
 const RED_NOTATION_NUMERALS = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+const YOLO_POLL_MS = 420;
+const YOLO_STALE_MS = 3500;
+const LIVE_COMMAND_POLL_MS = 260;
 
 const boardMetrics = {
   padX: 10,
@@ -172,6 +184,13 @@ function createInitialGameState() {
 }
 
 let gameState = createInitialGameState();
+let latestYoloDetection = null;
+let yoloPollTimer = null;
+let yoloPollInFlight = false;
+let liveCommandCursor = 0;
+let liveCommandTimer = null;
+let liveCommandInFlight = false;
+const shouldApplyLiveCommandsInThisWindow = window.self === window.top;
 
 function clonePieces(pieces) {
   return pieces.map((piece) => ({ ...piece }));
@@ -1592,6 +1611,195 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
+function formatYoloConfidence(value) {
+  const confidence = Number(value);
+  if (!Number.isFinite(confidence)) {
+    return "0%";
+  }
+  return `${Math.round(confidence * 100)}%`;
+}
+
+function formatYoloCommand(command) {
+  if (!command) {
+    return "未触发命令";
+  }
+
+  if (command.type === "move") {
+    return `${getSideLabel(command.side)} ${command.notation}`;
+  }
+
+  if (command.type === "reset") {
+    return "重置棋盘";
+  }
+
+  if (command.type === "prepare") {
+    return "准备棋盘";
+  }
+
+  return String(command.type ?? "命令");
+}
+
+function renderYoloPanel({ error = null } = {}) {
+  if (!yoloStatusPill || !yoloTitle || !yoloDetectionList) {
+    return;
+  }
+
+  yoloStatusPill.classList.remove("is-live", "is-command", "is-error");
+
+  if (error) {
+    yoloTitle.textContent = "视觉桥未连接";
+    yoloStatusPill.textContent = "离线";
+    yoloStatusPill.classList.add("is-error");
+    yoloDetectionList.replaceChildren(Object.assign(document.createElement("li"), { textContent: error }));
+    return;
+  }
+
+  if (!latestYoloDetection) {
+    yoloTitle.textContent = "等待视觉流";
+    yoloStatusPill.textContent = "未连接";
+    yoloTopicLabel.textContent = "/red/image_raw";
+    yoloFrameLabel.textContent = "0 帧";
+    yoloCommandLabel.textContent = "未触发命令";
+    yoloPreview?.parentElement?.classList.remove("has-image");
+    yoloDetectionList.replaceChildren(Object.assign(document.createElement("li"), { textContent: "暂无检测结果" }));
+    return;
+  }
+
+  const receivedAt = Date.parse(latestYoloDetection.receivedAt ?? "");
+  const isStale = Number.isFinite(receivedAt) && Date.now() - receivedAt > YOLO_STALE_MS;
+  const detections = latestYoloDetection.detections ?? [];
+  const top = latestYoloDetection.topDetection ?? detections[0] ?? null;
+  const hasCommand = Boolean(latestYoloDetection.command);
+
+  yoloTitle.textContent = top
+    ? `${top.label} ${formatYoloConfidence(top.confidence)}`
+    : "未检测到目标";
+  yoloStatusPill.textContent = isStale ? "等待中" : hasCommand ? "已触发" : "实时";
+  yoloStatusPill.classList.add(hasCommand ? "is-command" : "is-live");
+
+  yoloTopicLabel.textContent = latestYoloDetection.sourceTopic ?? "/red/image_raw";
+  yoloFrameLabel.textContent = `#${latestYoloDetection.sequence ?? latestYoloDetection.id ?? 0}`;
+  yoloCommandLabel.textContent = formatYoloCommand(latestYoloDetection.command);
+
+  if (latestYoloDetection.annotatedJpeg && yoloPreview) {
+    yoloPreview.src = `data:image/jpeg;base64,${latestYoloDetection.annotatedJpeg}`;
+    yoloPreview.parentElement?.classList.add("has-image");
+  } else {
+    yoloPreview?.parentElement?.classList.remove("has-image");
+  }
+
+  const fragment = document.createDocumentFragment();
+  const visibleDetections = detections.slice(0, 5);
+
+  if (!visibleDetections.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "当前帧没有检测结果";
+    fragment.append(empty);
+  } else {
+    visibleDetections.forEach((detection) => {
+      const item = document.createElement("li");
+      const label = document.createElement("strong");
+      label.textContent = detection.label;
+      const confidence = document.createElement("span");
+      confidence.textContent = formatYoloConfidence(detection.confidence);
+      item.append(label, confidence);
+      fragment.append(item);
+    });
+  }
+
+  yoloDetectionList.replaceChildren(fragment);
+}
+
+async function pollYoloLatest() {
+  if (yoloPollInFlight) {
+    scheduleYoloPoll();
+    return;
+  }
+
+  yoloPollInFlight = true;
+  try {
+    const payload = await fetchJson("./api/yolo/latest", {
+      method: "GET",
+      cache: "no-store",
+      headers: {},
+    });
+    latestYoloDetection = payload.latest ?? null;
+    renderYoloPanel();
+  } catch (error) {
+    renderYoloPanel({ error: "请先运行 ui/server.js 和 red_yolo_bridge。" });
+  } finally {
+    yoloPollInFlight = false;
+    scheduleYoloPoll();
+  }
+}
+
+function scheduleYoloPoll() {
+  window.clearTimeout(yoloPollTimer);
+  yoloPollTimer = window.setTimeout(() => {
+    void pollYoloLatest();
+  }, YOLO_POLL_MS);
+}
+
+async function primeLiveCommandCursor() {
+  if (!shouldApplyLiveCommandsInThisWindow) {
+    return;
+  }
+
+  const payload = await fetchJson("./api/interface/commands?after=0", {
+    method: "GET",
+    cache: "no-store",
+    headers: {},
+  });
+  liveCommandCursor = payload.latestId ?? 0;
+}
+
+async function pollLiveCommands() {
+  if (!shouldApplyLiveCommandsInThisWindow) {
+    return;
+  }
+
+  if (liveCommandInFlight) {
+    scheduleLiveCommandPoll();
+    return;
+  }
+
+  liveCommandInFlight = true;
+  try {
+    const payload = await fetchJson(`./api/interface/commands?after=${liveCommandCursor}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: {},
+    });
+
+    for (const command of payload.commands ?? []) {
+      try {
+        await applyLiveCommand(command);
+        gameState.statusText =
+          command.type === "move"
+            ? `YOLO 同步执行：${getSideLabel(command.side)} ${command.notation}`
+            : "YOLO 同步执行：棋盘已重置";
+      } catch (error) {
+        gameState.statusText = `YOLO 命令执行失败：${error.message}`;
+      } finally {
+        liveCommandCursor = command.id;
+        render();
+      }
+    }
+  } catch {
+    // The page can still work as a static board when the local bridge is absent.
+  } finally {
+    liveCommandInFlight = false;
+    scheduleLiveCommandPoll();
+  }
+}
+
+function scheduleLiveCommandPoll() {
+  window.clearTimeout(liveCommandTimer);
+  liveCommandTimer = window.setTimeout(() => {
+    void pollLiveCommands();
+  }, LIVE_COMMAND_POLL_MS);
+}
+
 async function syncEngineStatus({ silent = false } = {}) {
   try {
     const payload = await fetchJson("./api/engine/status", {
@@ -2330,12 +2538,21 @@ themeSwitch.addEventListener("click", () => {
 });
 
 render();
+renderYoloPanel();
 
 window.requestAnimationFrame(() => {
   document.body.classList.add("is-ready");
 });
 
 window.addEventListener("load", async () => {
+  void pollYoloLatest();
+  if (shouldApplyLiveCommandsInThisWindow) {
+    try {
+      await primeLiveCommandCursor();
+      scheduleLiveCommandPoll();
+    } catch {}
+  }
+
   const available = await syncEngineStatus({ silent: true });
   if (available) {
     gameState.mode = "engine";

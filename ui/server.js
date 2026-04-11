@@ -21,9 +21,13 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml",
 };
 const INTERFACE_COMMAND_LIMIT = 200;
+const YOLO_DETECTION_LIMIT = 120;
 
 let nextInterfaceCommandId = 1;
 const interfaceCommands = [];
+let nextYoloDetectionId = 1;
+let latestYoloDetection = null;
+const yoloDetections = [];
 
 class UciEngine {
   constructor() {
@@ -295,6 +299,64 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
+function normalizeYoloDetection(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("YOLO payload 必须是 JSON object。");
+  }
+
+  const detections = Array.isArray(body.detections)
+    ? body.detections
+        .filter((item) => item && typeof item === "object")
+        .slice(0, 30)
+        .map((item) => ({
+          class_id: Number.isFinite(Number(item.class_id)) ? Number(item.class_id) : null,
+          label: typeof item.label === "string" ? item.label : String(item.label ?? ""),
+          confidence: Number.isFinite(Number(item.confidence)) ? Number(item.confidence) : 0,
+          bbox_xyxy: Array.isArray(item.bbox_xyxy)
+            ? item.bbox_xyxy.slice(0, 4).map((value) => Number(value) || 0)
+            : [],
+        }))
+    : [];
+
+  const annotatedJpeg =
+    typeof body.annotated_jpeg === "string" && body.annotated_jpeg.length < 2_500_000
+      ? body.annotated_jpeg
+      : null;
+
+  return {
+    id: nextYoloDetectionId,
+    sequence: Number.isFinite(Number(body.sequence)) ? Number(body.sequence) : null,
+    sourceTopic:
+      typeof body.source_topic === "string" && body.source_topic.trim()
+        ? body.source_topic.trim()
+        : "/red/image_raw",
+    frameId: typeof body.frame_id === "string" ? body.frame_id : "",
+    stamp: body.stamp && typeof body.stamp === "object" ? body.stamp : null,
+    receivedAt: new Date().toISOString(),
+    sourceReceivedAt: Number.isFinite(Number(body.received_at)) ? Number(body.received_at) : null,
+    detections,
+    topDetection: detections[0] ?? null,
+    stableLabel: typeof body.stable_label === "string" ? body.stable_label : null,
+    stableCount: Number.isFinite(Number(body.stable_count)) ? Number(body.stable_count) : 0,
+    command: body.command && typeof body.command === "object" ? body.command : null,
+    commandSent: Boolean(body.command_sent),
+    annotatedJpeg,
+  };
+}
+
+function enqueueYoloDetection(body) {
+  const detection = normalizeYoloDetection(body);
+  nextYoloDetectionId += 1;
+  latestYoloDetection = detection;
+  yoloDetections.push(detection);
+
+  if (yoloDetections.length > YOLO_DETECTION_LIMIT) {
+    yoloDetections.splice(0, yoloDetections.length - YOLO_DETECTION_LIMIT);
+  }
+
+  return detection;
+}
+
 function enqueueInterfaceCommand(command) {
   const nextCommand = {
     id: nextInterfaceCommandId,
@@ -432,6 +494,35 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, {
         ok: true,
         command,
+      });
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/yolo/latest") {
+      sendJson(res, 200, {
+        latest: latestYoloDetection,
+        latestId: latestYoloDetection?.id ?? 0,
+      });
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/yolo/detections") {
+      const after = Math.max(0, Number(requestUrl.searchParams.get("after")) || 0);
+      const detections = yoloDetections.filter((detection) => detection.id > after);
+      sendJson(res, 200, {
+        detections,
+        latest: latestYoloDetection,
+        latestId: latestYoloDetection?.id ?? 0,
+      });
+      return;
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/yolo/detections") {
+      const body = await readRequestBody(req);
+      const detection = enqueueYoloDetection(body);
+      sendJson(res, 200, {
+        ok: true,
+        detection,
       });
       return;
     }

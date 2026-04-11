@@ -19,8 +19,9 @@ setup(
     packages=find_packages(exclude=["test"]),
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
-        (f"share/{package_name}", ["package.xml"]),
+        (f"share/{package_name}", ["package.xml", "requirements-yolo.txt"]),
         (f"share/{package_name}/launch", glob("launch/*.launch.py")),
+        (f"share/{package_name}/config", glob("config/*.json")),
         (f"share/{package_name}/test_videos", video_files),
     ],
     install_requires=["setuptools"],
@@ -33,6 +34,7 @@ setup(
     entry_points={
         "console_scripts": [
             "video_stream_publisher = chess_video_publisher.video_stream_publisher:main",
+            "red_yolo_bridge = chess_video_publisher.red_yolo_bridge:main",
         ],
     },
 )

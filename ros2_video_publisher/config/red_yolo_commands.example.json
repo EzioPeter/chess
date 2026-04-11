@@ -1,0 +1,16 @@
+{
+  "bing_san_jin_yi": {
+    "type": "move",
+    "side": "red",
+    "notation": "兵三进一"
+  },
+  "ma_ba_jin_qi": {
+    "type": "move",
+    "side": "red",
+    "notation": "马八进七"
+  },
+  "reset_board": {
+    "type": "reset",
+    "reset": true
+  }
+}
